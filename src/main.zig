@@ -353,70 +353,96 @@ pub const JsonValue = struct {
         };
     }
 
+    pub const VisitError = error{ ValueIsNull, NotAString, NotAnObject, NotAnInteger, NotAFloat, NotAnArray, NotABoolean };
+
+    /// Returns the string value
+    pub fn stringValue(self: *JsonValue) ![]const u8 {
+        return if (self.value == null) VisitError.ValueIsNull else if (self.type == JsonType.string) self.value.?.string else VisitError.NotAString;
+    }
+
     /// Returns the string value or panics
     pub fn string(self: *JsonValue) []const u8 {
-        if (self.value == null) @panic("Value is null");
-        return if (self.type == JsonType.string) self.value.?.string else @panic("Not a string");
+        return self.stringValue() catch |err| @panic(@errorName(err));
+    }
+
+    /// Returns the object value
+    pub fn objectValue(self: *JsonValue) !*JsonObject {
+        return if (self.value == null) VisitError.ValueIsNull else if (self.type == JsonType.object) self.value.?.object else VisitError.NotAnObject;
     }
 
     /// Returns the object value or panics
     pub fn object(self: *JsonValue) *JsonObject {
-        if (self.value == null) @panic("Value is null");
-        return if (self.type == JsonType.object) self.value.?.object else @panic("Not an object");
+        return self.objectValue() catch |err| @panic(@errorName(err));
+    }
+
+    /// Returns the integer value
+    pub fn integerValue(self: *JsonValue) !i64 {
+        return if (self.value == null) VisitError.ValueIsNull else if (self.type == JsonType.integer) self.value.?.integer else VisitError.NotAnInteger;
     }
 
     /// Returns the integer value or panics
     pub fn integer(self: *JsonValue) i64 {
-        if (self.value == null) @panic("Value is null");
-        return if (self.type == JsonType.integer) self.value.?.integer else @panic("Not an number");
+        return self.integerValue() catch |err| @panic(@errorName(err));
+    }
+
+    /// Returns the float value
+    pub fn floatValue(self: *JsonValue) !f64 {
+        return if (self.value == null) VisitError.ValueIsNull else if (self.type == JsonType.float) self.value.?.float else VisitError.NotAFloat;
     }
 
     /// Returns the float value or panics
     pub fn float(self: *JsonValue) f64 {
-        if (self.value == null) @panic("Value is null");
-        return if (self.type == JsonType.float) self.value.?.float else @panic("Not an float");
+        return self.floatValue() catch |err| @panic(@errorName(err));
+    }
+
+    /// Returns the array value
+    pub fn arrayValue(self: *JsonValue) !*JsonArray {
+        return if (self.value == null) VisitError.ValueIsNull else if (self.type == JsonType.array) self.value.?.array else VisitError.NotAnArray;
     }
 
     /// Returns the array value or panics
     pub fn array(self: *JsonValue) *JsonArray {
-        if (self.value == null) @panic("Value is null");
-        return if (self.type == JsonType.array) self.value.?.array else @panic("Not an array");
+        return self.arrayValue() catch |err| @panic(@errorName(err));
     }
 
-    /// Returns the array value or panics
+    /// Returns the boolean value
+    pub fn booleanValue(self: *JsonValue) !bool {
+        return if (self.value == null) VisitError.ValueIsNull else if (self.type == JsonType.boolean) self.value.?.boolean else VisitError.NotABoolean;
+    }
+
+    /// Returns the boolean value or panics
     pub fn boolean(self: *JsonValue) bool {
-        if (self.value == null) @panic("Value is null");
-        return if (self.type == JsonType.boolean) self.value.?.boolean else @panic("Not a boolean");
+        return self.booleanValue() catch |err| @panic(@errorName(err));
     }
 
     /// Returns the string value or null
     pub fn stringOrNull(self: *JsonValue) ?[]const u8 {
-        return if (self.value == null or self.type == JsonType.string) self.value.string else null;
+        return self.stringValue() catch null;
     }
 
     /// Returns the object value or null
     pub fn objectOrNull(self: *JsonValue) ?*JsonObject {
-        return if (self.value == null or self.type == JsonType.object) self.value.object else null;
+        return self.objectValue() catch null;
     }
 
     /// Returns the integer value or null
     pub fn integerOrNull(self: *JsonValue) ?i64 {
-        return if (self.value == null or self.type == JsonType.integer) self.value.integer else null;
+        return self.integerValue() catch null;
     }
 
     /// Returns the float value or null
     pub fn floatOrNull(self: *JsonValue) ?f64 {
-        return if (self.value == null or self.type == JsonType.float) self.value.float else null;
+        return self.floatValue() catch null;
     }
 
     /// Returns the array value or null
     pub fn arrayOrNull(self: *JsonValue) ?*JsonArray {
-        return if (self.value == null or self.type == JsonType.array) self.value.array else null;
+        return self.arrayValue() catch null;
     }
 
     /// Returns the boolean value or null
     pub fn booleanOrNull(self: *JsonValue) ?bool {
-        return if (self.value == null or self.type == JsonType.boolean) self.value.boolean else null;
+        return self.booleanValue() catch null;
     }
 
     /// Print the JSON value
@@ -2505,6 +2531,37 @@ test "README.md simple test from file" {
 
     bazObj.print(null);
     try std.testing.expectEqual(bazObj.get("baz").float(), -13e+37);
+}
+
+test "Optionals" {
+    const _json =
+        \\{"int":0,"string":"test","float":0.1,"array":[],"bool":true}
+    ;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    var buffer = bufferFromText(_json);
+    const root = try parseObject(&buffer, CONFIG_RFC8259, allocator);
+    // test for nulls
+    try std.testing.expect(root.stringOrNull() == null);
+    try std.testing.expect(root.integerOrNull() == null);
+    try std.testing.expect(root.floatOrNull() == null);
+    try std.testing.expect(root.arrayOrNull() == null);
+    try std.testing.expect(root.booleanOrNull() == null);
+
+    // test for proper values
+    const i = root.get("int");
+    // testing for a null object here since it could not be done at the root
+    try std.testing.expect(i.objectOrNull() == null);
+    try std.testing.expect(i.integerOrNull() == 0);
+    const s = root.get("string");
+    try std.testing.expectEqualStrings("test", s.stringOrNull().?);
+    const f = root.get("float");
+    try std.testing.expect(f.floatOrNull() == 0.1);
+    const a = root.get("array");
+    try std.testing.expect(a.arrayOrNull() != null);
+    const b = root.get("bool");
+    try std.testing.expect(b.booleanOrNull() == true);
 }
 
 // Check whether tests are executed.
